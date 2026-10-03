@@ -4,9 +4,44 @@ on:
   workflow_dispatch:
 
 jobs:
-  test:
+  build:
     runs-on: windows-latest
 
     steps:
-      - name: Test
-        run: echo "GitHub Actions is working"
+      - name: Checkout official DECKER
+        uses: actions/checkout@v4
+        with:
+          repository: senselogic/DECKER
+          path: decker
+
+      - name: Install DMD
+        shell: powershell
+        run: |
+          choco install dmd -y
+          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
+          if (!(Test-Path $dmd)) {
+            Write-Error "DMD compiler was not found."
+            exit 1
+          }
+          & $dmd --version
+
+      - name: Build DECKER
+        shell: powershell
+        working-directory: decker
+        run: |
+          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
+
+          & $dmd -m64 decker.d -of=decker.exe
+
+          if (!(Test-Path "decker.exe")) {
+            Write-Error "decker.exe was not created."
+            exit 1
+          }
+
+          Get-Item "decker.exe"
+
+      - name: Upload DECKER executable
+        uses: actions/upload-artifact@v4
+        with:
+          name: decker-windows
+          path: decker/decker.exe
