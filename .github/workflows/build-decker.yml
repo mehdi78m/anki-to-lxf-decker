@@ -1,0 +1,41 @@
+name: Build DECKER for Windows
+
+on:
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: windows-latest
+
+    steps:
+      - name: Checkout official DECKER source
+        uses: actions/checkout@v4
+        with:
+          repository: senselogic/DECKER
+          path: decker
+
+      - name: Install DMD
+        shell: powershell
+        run: |
+          choco install dmd -y
+          dmd --version
+
+      - name: Build decker.exe
+        shell: powershell
+        working-directory: decker
+        run: |
+          dmd -m64 decker.d -of=decker.exe
+          
+          if (-not (Test-Path "decker.exe")) {
+            Write-Error "decker.exe was not created."
+            exit 1
+          }
+
+          Write-Host "DECKER successfully built:"
+          Get-Item decker.exe
+
+      - name: Upload decker.exe
+        uses: actions/upload-artifact@v4
+        with:
+          name: decker-exe
+          path: decker/decker.exe
