@@ -8,7 +8,7 @@ jobs:
     runs-on: windows-latest
 
     steps:
-      - name: Checkout official DECKER source
+      - name: Checkout official DECKER
         uses: actions/checkout@v4
         with:
           repository: senselogic/DECKER
@@ -19,43 +19,65 @@ jobs:
         run: |
           choco install dmd -y
 
-          $dmdPath = "C:\D\dmd2\windows\bin64"
-
-          if (-not (Test-Path "$dmdPath\dmd.exe")) {
-            Write-Error "DMD was installed but dmd.exe was not found at $dmdPath"
-            exit 1
-          }
-
-          Add-Content $env:GITHUB_PATH $dmdPath
-
-          Write-Host "DMD installed successfully."
-          Write-Host "DMD location: $dmdPath"
-
       - name: Verify DMD
         shell: powershell
         run: |
-          dmd --version
+          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
+
+          if (-not (Test-Path $dmd)) {
+            Write-Host "DMD was not found at:"
+            Write-Host $dmd
+            Write-Host ""
+            Write-Host "Searching for dmd.exe..."
+            
+            Get-ChildItem "C:\D" -Filter dmd.exe -Recurse -ErrorAction SilentlyContinue |
+              Select-Object -ExpandProperty FullName
+
+            exit 1
+          }
+
+          Write-Host "DMD found:"
+          Write-Host $dmd
+
+          & $dmd --version
 
       - name: Build DECKER
         shell: powershell
         working-directory: decker
         run: |
-          Write-Host "=== DECKER source ==="
-          Get-ChildItem
+          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
 
-          Write-Host "=== Building DECKER ==="
-
-          dmd -m64 decker.d -of=decker.exe
-
-          if (-not (Test-Path "decker.exe")) {
-            Write-Error "decker.exe was not created."
+          if (-not (Test-Path $dmd)) {
+            Write-Error "DMD executable was not found."
             exit 1
           }
 
-          Write-Host "=== BUILD SUCCESSFUL ==="
+          Write-Host "DECKER source files:"
+          Get-ChildItem
+
+          Write-Host ""
+          Write-Host "Building decker.exe..."
+
+          & $dmd -m64 decker.d -of=decker.exe
+
+          if ($LASTEXITCODE -ne 0) {
+            Write-Error "DMD compilation failed."
+            exit $LASTEXITCODE
+          }
+
+          if (-not (Test-Path "decker.exe")) {
+            Write-Error "Compilation finished but decker.exe was not created."
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "================================="
+          Write-Host "DECKER BUILD SUCCESSFUL"
+          Write-Host "================================="
+
           Get-Item decker.exe
 
-      - name: Upload DECKER EXE
+      - name: Upload decker.exe
         uses: actions/upload-artifact@v4
         with:
           name: decker-exe
