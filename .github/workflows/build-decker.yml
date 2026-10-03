@@ -18,24 +18,46 @@ jobs:
         shell: powershell
         run: |
           choco install dmd -y
+
+          $dmdPath = "C:\D\dmd2\windows\bin64"
+
+          if (-not (Test-Path "$dmdPath\dmd.exe")) {
+            Write-Error "DMD was installed but dmd.exe was not found at $dmdPath"
+            exit 1
+          }
+
+          Add-Content $env:GITHUB_PATH $dmdPath
+
+          Write-Host "DMD installed successfully."
+          Write-Host "DMD location: $dmdPath"
+
+      - name: Verify DMD
+        shell: powershell
+        run: |
           dmd --version
 
-      - name: Build decker.exe
+      - name: Build DECKER
         shell: powershell
         working-directory: decker
         run: |
+          Write-Host "=== DECKER source ==="
+          Get-ChildItem
+
+          Write-Host "=== Building DECKER ==="
+
           dmd -m64 decker.d -of=decker.exe
-          
+
           if (-not (Test-Path "decker.exe")) {
             Write-Error "decker.exe was not created."
             exit 1
           }
 
-          Write-Host "DECKER successfully built:"
+          Write-Host "=== BUILD SUCCESSFUL ==="
           Get-Item decker.exe
 
-      - name: Upload decker.exe
+      - name: Upload DECKER EXE
         uses: actions/upload-artifact@v4
         with:
           name: decker-exe
           path: decker/decker.exe
+          if-no-files-found: error
