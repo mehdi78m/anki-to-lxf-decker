@@ -220,32 +220,44 @@ jobs:
 
           dir decker.exe
 
-      - name: Test DECKER executable
-        shell: cmd
+      - name: Verify DECKER executable
+        shell: powershell
         working-directory: decker
         run: |
-          echo ======================================
-          echo TESTING DECKER EXECUTABLE
-          echo ======================================
+          Write-Host "======================================"
+          Write-Host "VERIFYING DECKER EXECUTABLE"
+          Write-Host "======================================"
 
-          if not exist "decker.exe" (
-            echo ERROR: decker.exe does not exist.
-            exit /b 1
-          )
+          $exe = Join-Path (Get-Location) "decker.exe"
 
-          echo.
-          echo Testing executable directly...
+          if (!(Test-Path $exe)) {
+            Write-Error "decker.exe was not created."
+            exit 1
+          }
 
-          decker.exe
+          $file = Get-Item $exe
 
-          echo.
-          echo DECKER returned to command line.
-          echo This is expected because no input file was supplied.
+          Write-Host ""
+          Write-Host "DECKER executable found:"
+          Write-Host $file.FullName
 
-          echo.
-          echo ======================================
-          echo DECKER EXECUTABLE TEST PASSED
-          echo ======================================
+          Write-Host ""
+          Write-Host "File size:"
+          Write-Host $file.Length
+
+          if ($file.Length -le 0) {
+            Write-Error "decker.exe is empty."
+            exit 1
+          }
+
+          Write-Host ""
+          Write-Host "File type:"
+          Write-Host $file.Extension
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "DECKER EXECUTABLE VERIFICATION PASSED"
+          Write-Host "======================================"
 
       - name: Create Windows launcher
         shell: powershell
@@ -260,16 +272,24 @@ jobs:
           echo DECKER - Anki to Lexilize Converter
           echo ==========================================
           echo.
-          echo Usage:
-          echo   decker.exe [options] input.apkg output.lxf
+          echo This is the official DECKER command-line tool.
           echo.
-          echo Examples:
+          echo Usage:
+          echo.
+          echo   decker.exe [options] input_file_path output_file_path
+          echo.
+          echo Example:
+          echo.
           echo   decker.exe --verbose input.apkg output.lxf
           echo.
-          echo Press any key to close this window.
+          echo For media:
+          echo.
+          echo   decker.exe --media_folder "MEDIA_FOLDER" --dump_folder "DUMP_FOLDER" --verbose input.apkg output.lxf
+          echo.
+          echo ==========================================
           echo.
 
-          pause >nul
+          pause
           '@
 
           Set-Content `
@@ -287,33 +307,42 @@ jobs:
           This package contains the official DECKER executable.
 
           Files:
-          - decker.exe
-            Official DECKER command-line executable.
 
-          - Run_DECKER.cmd
-            Opens a command window and shows basic usage.
+          decker.exe
+          Official DECKER command-line executable.
 
-          DECKER command format:
+          Run_DECKER.cmd
+          Opens a command window and shows basic usage.
+
+          README.txt
+          This file.
+
+          Usage:
 
           decker.exe [options] input_file_path output_file_path
-
-          Supported input formats:
-          - Anki .apkg
-          - CSV .csv
-
-          Supported output formats:
-          - Lexilize .lxf
-          - CSV .csv
 
           Example:
 
           decker.exe --verbose input.apkg output.lxf
 
-          For media:
+          Example with media:
 
           decker.exe --media_folder "MEDIA_FOLDER" --dump_folder "DUMP_FOLDER" --verbose input.apkg output.lxf
 
-          This executable is the official DECKER project by SenseLogic.
+          Supported options:
+
+          --front_title "title"
+          --back_title "title"
+          --front_language "language"
+          --back_language "language"
+          --input_format "format"
+          --output_format "format"
+          --media_folder MEDIA_FOLDER/
+          --dump_folder DUMP_FOLDER/
+          --trim
+          --verbose
+
+          This executable is built from the official SenseLogic DECKER source.
           '@
 
           Set-Content `
@@ -329,8 +358,16 @@ jobs:
           echo FINAL DECKER PACKAGE
           echo ======================================
 
+          echo.
+          echo DECKER:
           dir decker.exe
+
+          echo.
+          echo LAUNCHER:
           dir Run_DECKER.cmd
+
+          echo.
+          echo README:
           dir README.txt
 
       - name: Upload DECKER Windows package
