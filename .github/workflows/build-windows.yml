@@ -1,4 +1,4 @@
-name: Build DECKER
+name: Build DECKER GUI
 
 on:
   workflow_dispatch:
@@ -133,8 +133,6 @@ jobs:
 
           Write-Host "SQLite downloaded successfully."
 
-          Write-Host "Extracting SQLite..."
-
           Expand-Archive `
             -Path $zip `
             -DestinationPath $dir `
@@ -180,12 +178,9 @@ jobs:
             exit /b 1
           )
 
-          echo.
-          echo SQLite object created successfully:
-
           dir "%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
 
-      - name: Build DECKER
+      - name: Build official DECKER
         shell: cmd
         working-directory: decker
         run: |
@@ -195,16 +190,7 @@ jobs:
           echo BUILDING OFFICIAL DECKER
           echo ======================================
 
-          echo.
-          echo DMD:
           dmd --version
-
-          echo.
-          echo SQLite object:
-          dir "%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
-
-          echo.
-          echo Compiling and linking DECKER...
 
           dmd -m64 decker.d "%RUNNER_TEMP%\sqlite-build\sqlite3.obj" -of=decker.exe
 
@@ -215,7 +201,7 @@ jobs:
 
           echo.
           echo ======================================
-          echo DECKER BUILD SUCCESSFUL
+          echo OFFICIAL DECKER BUILD SUCCESSFUL
           echo ======================================
 
           dir decker.exe
@@ -224,10 +210,6 @@ jobs:
         shell: powershell
         working-directory: decker
         run: |
-          Write-Host "======================================"
-          Write-Host "VERIFYING DECKER EXECUTABLE"
-          Write-Host "======================================"
-
           $exe = Join-Path (Get-Location) "decker.exe"
 
           if (!(Test-Path $exe)) {
@@ -237,145 +219,478 @@ jobs:
 
           $file = Get-Item $exe
 
-          Write-Host ""
-          Write-Host "DECKER executable found:"
-          Write-Host $file.FullName
-
-          Write-Host ""
-          Write-Host "File size:"
-          Write-Host $file.Length
-
           if ($file.Length -le 0) {
             Write-Error "decker.exe is empty."
             exit 1
           }
 
-          Write-Host ""
-          Write-Host "File type:"
-          Write-Host $file.Extension
+          Write-Host "DECKER executable:"
+          Write-Host $file.FullName
 
-          Write-Host ""
-          Write-Host "======================================"
-          Write-Host "DECKER EXECUTABLE VERIFICATION PASSED"
-          Write-Host "======================================"
+          Write-Host "Size:"
+          Write-Host $file.Length
 
-      - name: Create Windows launcher
+      - name: Install Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install PyInstaller
+        shell: cmd
+        run: |
+          python -m pip install --upgrade pip
+          python -m pip install pyinstaller
+
+      - name: Create DECKER GUI source
         shell: powershell
         working-directory: decker
         run: |
-          $launcher = @'
-          @echo off
-          title DECKER - Anki to Lexilize Converter
+          $gui = @'
+          import os
+          import sys
+          import subprocess
+          import threading
+          import tkinter as tk
+          from tkinter import filedialog, messagebox, ttk
 
-          echo.
-          echo ==========================================
-          echo DECKER - Anki to Lexilize Converter
-          echo ==========================================
-          echo.
-          echo This is the official DECKER command-line tool.
-          echo.
-          echo Usage:
-          echo.
-          echo   decker.exe [options] input_file_path output_file_path
-          echo.
-          echo Example:
-          echo.
-          echo   decker.exe --verbose input.apkg output.lxf
-          echo.
-          echo For media:
-          echo.
-          echo   decker.exe --media_folder "MEDIA_FOLDER" --dump_folder "DUMP_FOLDER" --verbose input.apkg output.lxf
-          echo.
-          echo ==========================================
-          echo.
 
-          pause
+          APP_TITLE = "DECKER - مبدل Anki به Lexilize"
+
+
+          def get_decker_path():
+              if getattr(sys, "frozen", False):
+                  base_dir = getattr(sys, "_MEIPASS", os.path.dirname(sys.executable))
+              else:
+                  base_dir = os.path.dirname(os.path.abspath(__file__))
+
+              return os.path.join(base_dir, "decker.exe")
+
+
+          def choose_input():
+              path = filedialog.askopenfilename(
+                  title="انتخاب فایل Anki",
+                  filetypes=[
+                      ("Anki Package", "*.apkg"),
+                      ("All files", "*.*")
+                  ]
+              )
+
+              if path:
+                  input_var.set(path)
+
+                  if not output_var.get():
+                      base, _ = os.path.splitext(path)
+                      output_var.set(base + ".lxf")
+
+
+          def choose_output():
+              path = filedialog.asksaveasfilename(
+                  title="انتخاب فایل خروجی",
+                  defaultextension=".lxf",
+                  filetypes=[
+                      ("Lexilize File", "*.lxf"),
+                      ("All files", "*.*")
+                  ]
+              )
+
+              if path:
+                  output_var.set(path)
+
+
+          def set_enabled(enabled):
+              state = "normal" if enabled else "disabled"
+              input_button.config(state=state)
+              output_button.config(state=state)
+              convert_button.config(state=state)
+
+
+          def run_conversion():
+              input_file = input_var.get().strip()
+              output_file = output_var.get().strip()
+
+              if not input_file:
+                  messagebox.showwarning(
+                      "فایل ورودی",
+                      "لطفاً فایل Anki با پسوند .apkg را انتخاب کنید."
+                  )
+                  return
+
+              if not os.path.isfile(input_file):
+                  messagebox.showerror(
+                      "خطا",
+                      "فایل ورودی پیدا نشد."
+                  )
+                  return
+
+              if not output_file:
+                  messagebox.showwarning(
+                      "فایل خروجی",
+                      "لطفاً محل فایل خروجی LXF را مشخص کنید."
+                  )
+                  return
+
+              output_dir = os.path.dirname(os.path.abspath(output_file))
+
+              if output_dir and not os.path.isdir(output_dir):
+                  try:
+                      os.makedirs(output_dir, exist_ok=True)
+                  except Exception as exc:
+                      messagebox.showerror(
+                          "خطا",
+                          "ساخت پوشه خروجی ممکن نشد:\n\n" + str(exc)
+                      )
+                      return
+
+              if os.path.abspath(input_file) == os.path.abspath(output_file):
+                  messagebox.showerror(
+                      "خطا",
+                      "فایل ورودی و خروجی نمی‌توانند یکسان باشند."
+                  )
+                  return
+
+              decker = get_decker_path()
+
+              if not os.path.isfile(decker):
+                  messagebox.showerror(
+                      "خطای DECKER",
+                      "فایل موتور DECKER پیدا نشد."
+                  )
+                  return
+
+              set_enabled(False)
+              status_var.set("در حال تبدیل...")
+              progress.start(10)
+
+              thread = threading.Thread(
+                  target=conversion_worker,
+                  args=(decker, input_file, output_file),
+                  daemon=True
+              )
+
+              thread.start()
+
+
+          def conversion_worker(decker, input_file, output_file):
+              try:
+                  command = [
+                      decker,
+                      input_file,
+                      output_file
+                  ]
+
+                  result = subprocess.run(
+                      command,
+                      stdout=subprocess.PIPE,
+                      stderr=subprocess.STDOUT,
+                      text=True,
+                      encoding="utf-8",
+                      errors="replace",
+                      cwd=os.path.dirname(decker)
+                  )
+
+                  root.after(
+                      0,
+                      conversion_finished,
+                      result.returncode,
+                      result.stdout,
+                      output_file
+                  )
+
+              except Exception as exc:
+                  root.after(
+                      0,
+                      conversion_exception,
+                      str(exc)
+                  )
+
+
+          def conversion_finished(returncode, log, output_file):
+              progress.stop()
+              set_enabled(True)
+
+              if returncode == 0 and os.path.isfile(output_file):
+                  status_var.set("تبدیل با موفقیت انجام شد.")
+
+                  messagebox.showinfo(
+                      "تبدیل موفق",
+                      "تبدیل با موفقیت انجام شد.\n\n"
+                      "فایل خروجی:\n"
+                      + output_file
+                  )
+
+              else:
+                  status_var.set("تبدیل ناموفق بود.")
+
+                  details = log.strip()
+
+                  if not details:
+                      details = "DECKER کد خطای " + str(returncode) + " برگرداند."
+
+                  messagebox.showerror(
+                      "خطا در تبدیل",
+                      "تبدیل انجام نشد.\n\n" + details
+                  )
+
+
+          def conversion_exception(error_text):
+              progress.stop()
+              set_enabled(True)
+              status_var.set("خطا")
+
+              messagebox.showerror(
+                  "خطا",
+                  "اجرای DECKER ممکن نشد.\n\n" + error_text
+              )
+
+
+          root = tk.Tk()
+          root.title(APP_TITLE)
+          root.geometry("760x300")
+          root.minsize(700, 280)
+          root.resizable(True, False)
+
+
+          main = ttk.Frame(root, padding=20)
+          main.pack(fill="both", expand=True)
+
+
+          title = ttk.Label(
+              main,
+              text="DECKER - مبدل Anki به Lexilize",
+              font=("Segoe UI", 16, "bold")
+          )
+
+          title.pack(anchor="e", pady=(0, 20))
+
+
+          input_frame = ttk.Frame(main)
+          input_frame.pack(fill="x", pady=5)
+
+
+          ttk.Label(
+              input_frame,
+              text="فایل ورودی Anki (.apkg):",
+              width=25,
+              anchor="e"
+          ).pack(side="right")
+
+
+          input_var = tk.StringVar()
+
+
+          input_entry = ttk.Entry(
+              input_frame,
+              textvariable=input_var
+          )
+
+          input_entry.pack(
+              side="right",
+              fill="x",
+              expand=True,
+              padx=8
+          )
+
+
+          input_button = ttk.Button(
+              input_frame,
+              text="انتخاب...",
+              command=choose_input
+          )
+
+          input_button.pack(side="left")
+
+
+          output_frame = ttk.Frame(main)
+          output_frame.pack(fill="x", pady=5)
+
+
+          ttk.Label(
+              output_frame,
+              text="فایل خروجی (.lxf):",
+              width=25,
+              anchor="e"
+          ).pack(side="right")
+
+
+          output_var = tk.StringVar()
+
+
+          output_entry = ttk.Entry(
+              output_frame,
+              textvariable=output_var
+          )
+
+          output_entry.pack(
+              side="right",
+              fill="x",
+              expand=True,
+              padx=8
+          )
+
+
+          output_button = ttk.Button(
+              output_frame,
+              text="انتخاب...",
+              command=choose_output
+          )
+
+          output_button.pack(side="left")
+
+
+          convert_button = ttk.Button(
+              main,
+              text="تبدیل فایل",
+              command=run_conversion
+          )
+
+          convert_button.pack(
+              pady=(25, 10),
+              ipadx=25,
+              ipady=5
+          )
+
+
+          progress = ttk.Progressbar(
+              main,
+              mode="indeterminate"
+          )
+
+          progress.pack(fill="x", pady=5)
+
+
+          status_var = tk.StringVar(
+              value="آماده"
+          )
+
+
+          status = ttk.Label(
+              main,
+              textvariable=status_var,
+              anchor="center"
+          )
+
+          status.pack(fill="x", pady=5)
+
+
+          root.mainloop()
           '@
 
           Set-Content `
-            -Path "Run_DECKER.cmd" `
-            -Value $launcher `
-            -Encoding ascii
-
-      - name: Create README
-        shell: powershell
-        working-directory: decker
-        run: |
-          $readme = @'
-          DECKER Windows
-
-          This package contains the official DECKER executable.
-
-          Files:
-
-          decker.exe
-          Official DECKER command-line executable.
-
-          Run_DECKER.cmd
-          Opens a command window and shows basic usage.
-
-          README.txt
-          This file.
-
-          Usage:
-
-          decker.exe [options] input_file_path output_file_path
-
-          Example:
-
-          decker.exe --verbose input.apkg output.lxf
-
-          Example with media:
-
-          decker.exe --media_folder "MEDIA_FOLDER" --dump_folder "DUMP_FOLDER" --verbose input.apkg output.lxf
-
-          Supported options:
-
-          --front_title "title"
-          --back_title "title"
-          --front_language "language"
-          --back_language "language"
-          --input_format "format"
-          --output_format "format"
-          --media_folder MEDIA_FOLDER/
-          --dump_folder DUMP_FOLDER/
-          --trim
-          --verbose
-
-          This executable is built from the official SenseLogic DECKER source.
-          '@
-
-          Set-Content `
-            -Path "README.txt" `
-            -Value $readme `
+            -Path "decker_gui.py" `
+            -Value $gui `
             -Encoding utf8
 
-      - name: Show final package
+      - name: Build GUI EXE
         shell: cmd
         working-directory: decker
         run: |
           echo ======================================
-          echo FINAL DECKER PACKAGE
+          echo BUILDING DECKER GUI EXE
           echo ======================================
 
-          echo.
-          echo DECKER:
-          dir decker.exe
+          python -m PyInstaller ^
+            --noconfirm ^
+            --clean ^
+            --onefile ^
+            --windowed ^
+            --name DECKER_GUI ^
+            --add-binary "decker.exe;." ^
+            decker_gui.py
+
+          if not exist "dist\DECKER_GUI.exe" (
+            echo ERROR: DECKER_GUI.exe was not created.
+            exit /b 1
+          )
 
           echo.
-          echo LAUNCHER:
-          dir Run_DECKER.cmd
+          echo ======================================
+          echo GUI BUILD SUCCESSFUL
+          echo ======================================
 
-          echo.
-          echo README:
-          dir README.txt
+          dir "dist\DECKER_GUI.exe"
 
-      - name: Upload DECKER Windows package
+      - name: Test GUI EXE exists
+        shell: powershell
+        working-directory: decker
+        run: |
+          $exe = Join-Path (Get-Location) "dist\DECKER_GUI.exe"
+
+          if (!(Test-Path $exe)) {
+              Write-Error "DECKER_GUI.exe was not created."
+              exit 1
+          }
+
+          $file = Get-Item $exe
+
+          if ($file.Length -le 0) {
+              Write-Error "DECKER_GUI.exe is empty."
+              exit 1
+          }
+
+          Write-Host "GUI EXE:"
+          Write-Host $file.FullName
+
+          Write-Host "Size:"
+          Write-Host $file.Length
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "GUI EXE VERIFICATION PASSED"
+          Write-Host "======================================"
+
+      - name: Prepare final package
+        shell: powershell
+        working-directory: decker
+        run: |
+          New-Item `
+            -ItemType Directory `
+            -Force `
+            -Path "final-package" |
+            Out-Null
+
+          Copy-Item `
+            "dist\DECKER_GUI.exe" `
+            "final-package\DECKER_GUI.exe"
+
+          $readme = @'
+          DECKER GUI
+
+          DECKER_GUI.exe is a graphical Windows interface for the official DECKER engine.
+
+          How to use:
+
+          1. Run DECKER_GUI.exe
+          2. Select your Anki .apkg file.
+          3. Select the output .lxf file.
+          4. Click "تبدیل فایل".
+
+          The official DECKER engine is embedded inside the executable.
+
+          Current version:
+          - Input: Anki .apkg
+          - Output: Lexilize .lxf
+
+          Additional DECKER options will be added after the basic conversion
+          has been tested successfully with a real Anki deck.
+          '@
+
+          Set-Content `
+            -Path "final-package\README.txt" `
+            -Value $readme `
+            -Encoding utf8
+
+          Write-Host ""
+          Write-Host "======================================"
+          Write-Host "FINAL PACKAGE"
+          Write-Host "======================================"
+
+          Get-ChildItem "final-package"
+
+      - name: Upload DECKER GUI
         uses: actions/upload-artifact@v5
         with:
-          name: decker-windows
+          name: DECKER-GUI-Windows
           path: |
-            decker/decker.exe
-            decker/Run_DECKER.cmd
-            decker/README.txt
+            decker/final-package/DECKER_GUI.exe
+            decker/final-package/README.txt
           if-no-files-found: error
