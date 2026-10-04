@@ -53,8 +53,11 @@ jobs:
           Write-Host "VC environment:"
           Write-Host $vcvars
 
-          "VS_PATH=$vsPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
-          "VCVARS=$vcvars" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VS_PATH=$vsPath" |
+            Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+          "VCVARS=$vcvars" |
+            Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
       - name: Verify compiler environment
         shell: cmd
@@ -78,23 +81,64 @@ jobs:
           echo ======================================
           where link
 
-      - name: Download SQLite
+      - name: Download official SQLite
         shell: powershell
         run: |
-          $url = "https://www.sqlite.org/2025/sqlite-amalgamation-3530400.zip"
+          Write-Host "Reading official SQLite download page..."
+
+          $page = Invoke-WebRequest `
+            -Uri "https://www.sqlite.org/download.html" `
+            -UseBasicParsing
+
+          $html = $page.Content
+
+          Write-Host "Searching for official SQLite amalgamation..."
+
+          $match = [regex]::Match(
+            $html,
+            'PRODUCT,([0-9]+\.[0-9]+\.[0-9]+),([^,]*sqlite-amalgamation-[0-9]+\.zip),'
+          )
+
+          if (!$match.Success) {
+            Write-Error "Could not find the official SQLite amalgamation download."
+            exit 1
+          }
+
+          $sqliteVersion = $match.Groups[1].Value
+          $relativeUrl = $match.Groups[2].Value
+
+          Write-Host "SQLite version:"
+          Write-Host $sqliteVersion
+
+          Write-Host "SQLite package:"
+          Write-Host $relativeUrl
+
+          $sqliteUrl = "https://www.sqlite.org/$relativeUrl"
+
+          Write-Host "SQLite download URL:"
+          Write-Host $sqliteUrl
+
           $zip = "$env:RUNNER_TEMP\sqlite.zip"
           $dir = "$env:RUNNER_TEMP\sqlite"
 
-          Write-Host "Downloading SQLite 3.53.4..."
-          Invoke-WebRequest -Uri $url -OutFile $zip
+          Invoke-WebRequest `
+            -Uri $sqliteUrl `
+            -OutFile $zip `
+            -UseBasicParsing
 
           if (!(Test-Path $zip)) {
             Write-Error "SQLite download failed."
             exit 1
           }
 
+          Write-Host "SQLite downloaded successfully."
+
           Write-Host "Extracting SQLite..."
-          Expand-Archive -Path $zip -DestinationPath $dir -Force
+
+          Expand-Archive `
+            -Path $zip `
+            -DestinationPath $dir `
+            -Force
 
           $sqliteC = Get-ChildItem `
             -Path $dir `
@@ -103,11 +147,11 @@ jobs:
             Select-Object -First 1
 
           if ($null -eq $sqliteC) {
-            Write-Error "sqlite3.c was not found."
+            Write-Error "sqlite3.c was not found after extraction."
             exit 1
           }
 
-          Write-Host "SQLite source:"
+          Write-Host "SQLite source found:"
           Write-Host $sqliteC.FullName
 
           "SQLITE_C=$($sqliteC.FullName)" |
