@@ -5,7 +5,7 @@ on:
 
 jobs:
   build:
-    runs-on: windows-latest
+    runs-on: windows-2025
 
     steps:
       - name: Checkout official DECKER
@@ -15,67 +15,165 @@ jobs:
           path: decker
 
       - name: Install DMD
+        uses: dlang-community/setup-dlang@v2
+        with:
+          compiler: dmd
+
+      - name: Locate Visual Studio
         shell: powershell
         run: |
-          choco install dmd -y
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
 
-          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
-
-          if (!(Test-Path $dmd)) {
-            Write-Error "DMD was not found at $dmd"
+          if (!(Test-Path $vswhere)) {
+            Write-Error "vswhere.exe was not found."
             exit 1
           }
 
-          & $dmd --version
+          $vsPath = & $vswhere `
+            -latest `
+            -products * `
+            -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 `
+            -property installationPath
 
-      - name: Install SQLite
+          if (!$vsPath) {
+            Write-Error "Visual C++ installation was not found."
+            exit 1
+          }
+
+          Write-Host "Visual Studio installation:"
+          Write-Host $vsPath
+
+          $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
+
+          if (!(Test-Path $vcvars)) {
+            Write-Error "vcvars64.bat was not found:"
+            Write-Error $vcvars
+            exit 1
+          }
+
+          "VS_PATH=$vsPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+          "VCVARS=$vcvars" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Test Visual C++ environment
+        shell: cmd
+        run: |
+          call "%VCVARS%"
+
+          echo ===== DMD =====
+          dmd --version
+
+          echo ===== MSVC =====
+          where cl
+          cl
+
+          echo ===== LINK =====
+          where link
+          link
+
+      - name: Download official SQLite
         shell: powershell
         run: |
-          choco install sqlite -y
+          $url = "https://www.sqlite.org/2025/sqlite-amalgamation-3500000.zip"
+          $zip = "$env:RUNNER_TEMP\sqlite.zip"
+          $dir = "$env:RUNNER_TEMP\sqlite"
 
-          $sqlite = Get-ChildItem `
-            -Path "C:\ProgramData\chocolatey\lib\sqlite" `
-            -Recurse `
-            -Filter "sqlite3.lib" `
-            -ErrorAction SilentlyContinue |
+          Write-Host "Downloading SQLite..."
+          Invoke-WebRequest -Uri $url -OutFile $zip
+
+          Write-Host "Extracting SQLite..."
+          Expand-Archive -Path $zip -DestinationPath $dir -Force
+
+          $sqliteC = Get-ChildItem `
+            -Path $dir `
+            -Filter sqlite3.c `
+            -Recurse |
             Select-Object -First 1
 
-          if ($null -eq $sqlite) {
-            Write-Error "sqlite3.lib was not found."
+          if ($null -eq $sqliteC) {
+            Write-Error "sqlite3.c was not found."
             exit 1
           }
 
-          Write-Host "SQLite library found:"
-          Write-Host $sqlite.FullName
+          Write-Host "SQLite source:"
+          Write-Host $sqliteC.FullName
 
-          "SQLITE_LIB_DIR=$($sqlite.DirectoryName)" | Out-File `
-            -FilePath $env:GITHUB_ENV `
-            -Encoding utf8
+          "SQLITE_C=$($sqliteC.FullName)" |
+            Out-File $env:GITHUB_ENV -Append -Encoding utf8
+
+      - name: Build SQLite object
+        shell: cmd
+        run: |
+          call "%VCVARS%"
+
+          echo ===== Building SQLite =====
+
+          mkdir "%RUNNER_TEMP%\sqlite-build"
+
+          cl.exe ^
+            /nologo ^
+            /O2 ^
+            /c ^
+            "%SQLITE_C%" ^
+            /Fo"%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
+
+          if not exist "%RUNNER_TEMP%\sqlite-build\sqlite3.obj" (
+            echo sqlite3.obj was not created.
+            exit /b 1
+          )
+
+          echo SQLite object successfully created.
 
       - name: Build DECKER
-        shell: powershell
+        shell: cmd
         working-directory: decker
         run: |
-          $dmd = "C:\D\dmd2\windows\bin64\dmd.exe"
+          call "%VCVARS%"
 
-          Write-Host "Building DECKER..."
-          Write-Host "SQLite library directory: $env:SQLITE_LIB_DIR"
+          echo ======================================
+          echo BUILDING DECKER
+          echo ======================================
 
-          & $dmd -m64 decker.d `
-            -of=decker.exe `
-            "-L+sqlite3.lib" `
-            "-L+LIBPATH:$env:SQLITE_LIB_DIR"
+          dmd --version
 
-          if (!(Test-Path "decker.exe")) {
-            Write-Error "decker.exe was not created."
-            exit 1
-          }
+          echo.
+          echo SQLite object:
+          dir "%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
 
-          Write-Host "DECKER successfully built:"
-          Get-Item "decker.exe"
+          echo.
+          echo Compiling and linking DECKER...
+
+          dmd -m64 decker.d "%RUNNER_TEMP%\sqlite-build\sqlite3.obj" -of=decker.exe
+
+          if not exist "decker.exe" (
+            echo ERROR: decker.exe was not created.
+            exit /b 1
+          )
+
+          echo.
+          echo ======================================
+          echo DECKER BUILD SUCCESSFUL
+          echo ======================================
+
+          dir decker.exe
+
+      - name: Test DECKER
+        shell: cmd
+        working-directory: decker
+        run: |
+          echo Testing DECKER...
+
+          decker.exe --help
+
+          if errorlevel 1 (
+            echo DECKER test failed.
+            exit /b 1
+          )
+
+          echo DECKER test passed.
 
       - name: Upload DECKER EXE
         uses: actions/upload-artifact@v4
         with:
           name: decker-windows
           path: decker/decker.exe
+          if-no-files-found: error
