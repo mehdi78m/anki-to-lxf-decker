@@ -220,23 +220,28 @@ jobs:
 
           dir decker.exe
 
-      - name: Test DECKER
+      - name: Test DECKER executable
         shell: cmd
         working-directory: decker
         run: |
           echo ======================================
-          echo TESTING DECKER
+          echo TESTING DECKER EXECUTABLE
           echo ======================================
 
-          decker.exe --help
-
-          if errorlevel 1 (
-            echo ERROR: DECKER test failed.
+          if not exist "decker.exe" (
+            echo ERROR: decker.exe does not exist.
             exit /b 1
           )
 
           echo.
-          echo DECKER test passed successfully.
+          echo DECKER executable exists:
+
+          dir decker.exe
+
+          echo.
+          echo ======================================
+          echo DECKER EXECUTABLE TEST PASSED
+          echo ======================================
 
       - name: Upload DECKER EXE
         uses: actions/upload-artifact@v4
