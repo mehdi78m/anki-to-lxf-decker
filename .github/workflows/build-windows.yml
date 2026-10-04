@@ -40,52 +40,65 @@ jobs:
             exit 1
           }
 
-          Write-Host "Visual Studio installation:"
-          Write-Host $vsPath
-
           $vcvars = Join-Path $vsPath "VC\Auxiliary\Build\vcvars64.bat"
 
           if (!(Test-Path $vcvars)) {
-            Write-Error "vcvars64.bat was not found:"
-            Write-Error $vcvars
+            Write-Error "vcvars64.bat was not found."
             exit 1
           }
+
+          Write-Host "Visual Studio:"
+          Write-Host $vsPath
+
+          Write-Host "VC environment:"
+          Write-Host $vcvars
 
           "VS_PATH=$vsPath" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
           "VCVARS=$vcvars" | Out-File $env:GITHUB_ENV -Append -Encoding utf8
 
-      - name: Test Visual C++ environment
+      - name: Verify compiler environment
         shell: cmd
         run: |
           call "%VCVARS%"
 
-          echo ===== DMD =====
+          echo ======================================
+          echo DMD
+          echo ======================================
           dmd --version
 
-          echo ===== MSVC =====
+          echo.
+          echo ======================================
+          echo Visual C++
+          echo ======================================
           where cl
-          cl
 
-          echo ===== LINK =====
+          echo.
+          echo ======================================
+          echo Microsoft Linker
+          echo ======================================
           where link
-          link
 
-      - name: Download official SQLite
+      - name: Download SQLite
         shell: powershell
         run: |
-          $url = "https://www.sqlite.org/2025/sqlite-amalgamation-3500000.zip"
+          $url = "https://www.sqlite.org/2025/sqlite-amalgamation-3530400.zip"
           $zip = "$env:RUNNER_TEMP\sqlite.zip"
           $dir = "$env:RUNNER_TEMP\sqlite"
 
-          Write-Host "Downloading SQLite..."
+          Write-Host "Downloading SQLite 3.53.4..."
           Invoke-WebRequest -Uri $url -OutFile $zip
+
+          if (!(Test-Path $zip)) {
+            Write-Error "SQLite download failed."
+            exit 1
+          }
 
           Write-Host "Extracting SQLite..."
           Expand-Archive -Path $zip -DestinationPath $dir -Force
 
           $sqliteC = Get-ChildItem `
             -Path $dir `
-            -Filter sqlite3.c `
+            -Filter "sqlite3.c" `
             -Recurse |
             Select-Object -First 1
 
@@ -105,7 +118,9 @@ jobs:
         run: |
           call "%VCVARS%"
 
-          echo ===== Building SQLite =====
+          echo ======================================
+          echo BUILDING SQLITE
+          echo ======================================
 
           mkdir "%RUNNER_TEMP%\sqlite-build"
 
@@ -117,11 +132,14 @@ jobs:
             /Fo"%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
 
           if not exist "%RUNNER_TEMP%\sqlite-build\sqlite3.obj" (
-            echo sqlite3.obj was not created.
+            echo ERROR: sqlite3.obj was not created.
             exit /b 1
           )
 
-          echo SQLite object successfully created.
+          echo.
+          echo SQLite object created successfully:
+
+          dir "%RUNNER_TEMP%\sqlite-build\sqlite3.obj"
 
       - name: Build DECKER
         shell: cmd
@@ -130,9 +148,11 @@ jobs:
           call "%VCVARS%"
 
           echo ======================================
-          echo BUILDING DECKER
+          echo BUILDING OFFICIAL DECKER
           echo ======================================
 
+          echo.
+          echo DMD:
           dmd --version
 
           echo.
@@ -160,16 +180,19 @@ jobs:
         shell: cmd
         working-directory: decker
         run: |
-          echo Testing DECKER...
+          echo ======================================
+          echo TESTING DECKER
+          echo ======================================
 
           decker.exe --help
 
           if errorlevel 1 (
-            echo DECKER test failed.
+            echo ERROR: DECKER test failed.
             exit /b 1
           )
 
-          echo DECKER test passed.
+          echo.
+          echo DECKER test passed successfully.
 
       - name: Upload DECKER EXE
         uses: actions/upload-artifact@v4
