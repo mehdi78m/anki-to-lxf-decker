@@ -9,7 +9,7 @@ jobs:
 
     steps:
       - name: Checkout official DECKER
-        uses: actions/checkout@v4
+        uses: actions/checkout@v5
         with:
           repository: senselogic/DECKER
           path: decker
@@ -234,18 +234,111 @@ jobs:
           )
 
           echo.
-          echo DECKER executable exists:
+          echo Testing executable directly...
 
-          dir decker.exe
+          decker.exe
+
+          echo.
+          echo DECKER returned to command line.
+          echo This is expected because no input file was supplied.
 
           echo.
           echo ======================================
           echo DECKER EXECUTABLE TEST PASSED
           echo ======================================
 
-      - name: Upload DECKER EXE
-        uses: actions/upload-artifact@v4
+      - name: Create Windows launcher
+        shell: powershell
+        working-directory: decker
+        run: |
+          $launcher = @'
+          @echo off
+          title DECKER - Anki to Lexilize Converter
+
+          echo.
+          echo ==========================================
+          echo DECKER - Anki to Lexilize Converter
+          echo ==========================================
+          echo.
+          echo Usage:
+          echo   decker.exe [options] input.apkg output.lxf
+          echo.
+          echo Examples:
+          echo   decker.exe --verbose input.apkg output.lxf
+          echo.
+          echo Press any key to close this window.
+          echo.
+
+          pause >nul
+          '@
+
+          Set-Content `
+            -Path "Run_DECKER.cmd" `
+            -Value $launcher `
+            -Encoding ascii
+
+      - name: Create README
+        shell: powershell
+        working-directory: decker
+        run: |
+          $readme = @'
+          DECKER Windows
+
+          This package contains the official DECKER executable.
+
+          Files:
+          - decker.exe
+            Official DECKER command-line executable.
+
+          - Run_DECKER.cmd
+            Opens a command window and shows basic usage.
+
+          DECKER command format:
+
+          decker.exe [options] input_file_path output_file_path
+
+          Supported input formats:
+          - Anki .apkg
+          - CSV .csv
+
+          Supported output formats:
+          - Lexilize .lxf
+          - CSV .csv
+
+          Example:
+
+          decker.exe --verbose input.apkg output.lxf
+
+          For media:
+
+          decker.exe --media_folder "MEDIA_FOLDER" --dump_folder "DUMP_FOLDER" --verbose input.apkg output.lxf
+
+          This executable is the official DECKER project by SenseLogic.
+          '@
+
+          Set-Content `
+            -Path "README.txt" `
+            -Value $readme `
+            -Encoding utf8
+
+      - name: Show final package
+        shell: cmd
+        working-directory: decker
+        run: |
+          echo ======================================
+          echo FINAL DECKER PACKAGE
+          echo ======================================
+
+          dir decker.exe
+          dir Run_DECKER.cmd
+          dir README.txt
+
+      - name: Upload DECKER Windows package
+        uses: actions/upload-artifact@v5
         with:
           name: decker-windows
-          path: decker/decker.exe
+          path: |
+            decker/decker.exe
+            decker/Run_DECKER.cmd
+            decker/README.txt
           if-no-files-found: error
